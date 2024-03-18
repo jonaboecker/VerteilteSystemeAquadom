@@ -1,5 +1,9 @@
+import aqua.blatt1.broker.Broker;
+import aqua.blatt1.client.Aqualife;
+
 public class Main {
     public static void main(String[] args) {
-        System.out.println("Hello world!");
+        Aqualife.main(args);
+        Aqualife.main(args);
     }
 }
