@@ -1,0 +1,9 @@
+<component name="ArtifactManager">
+  <artifact type="jar" name="aquadom:jar">
+    <output-path>$PROJECT_DIR$/out/artifacts/aquadom_jar</output-path>
+    <root id="archive" name="aquadom.jar">
+      <element id="module-output" name="aquadom" />
+      <element id="extracted-dir" path="$USER_HOME$/Downloads/messaging.jar" path-in-jar="/" />
+    </root>
+  </artifact>
+</component>
