@@ -6,6 +6,7 @@ import aqua.blatt1.common.msgtypes.DeregisterRequest;
 import aqua.blatt1.common.msgtypes.HandoffRequest;
 import aqua.blatt1.common.msgtypes.RegisterRequest;
 import aqua.blatt1.common.msgtypes.RegisterResponse;
+import aqua.blatt2.broker.PoisonPill;
 import messaging.Endpoint;
 import messaging.Message;
 
@@ -16,6 +17,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+
+import static javax.swing.JOptionPane.showMessageDialog;
 
 public class Broker {
 
@@ -28,19 +31,31 @@ public class Broker {
     private static final int NUMTHREADS = 16;
     ExecutorService executor = Executors. newFixedThreadPool(NUMTHREADS);
 
+    private static boolean stopFlag = false;
+
     public Broker(){
         n = 0;
     }
     public void broker() {
-        while(true){
+        while(!stopFlag){
             //System.out.println("Broker is running");
             Message message = endpoint.blockingReceive();
+            if (message.getPayload() instanceof PoisonPill) {
+                System.out.println("poison");
+
+                break;
+            }
             executor.execute(new BrokerTask(message)::run);
         }
-        //executor.shutdown();
+        executor.shutdown();
     }
 
     public static void main(String[] args) {
+        Thread stopThread = new Thread(() -> {
+            showMessageDialog(null, "press ok to end");
+            stopFlag = true;
+        });
+        // stopThread.start();
         Broker broker = new Broker();
         broker.broker();
     }
@@ -59,6 +74,9 @@ public class Broker {
         public void run() {
             //System.out.println("BrokerTask is running");
             switch (payload) {
+                case PoisonPill ignored:
+                    stopFlag = true;
+                    break;
                 case RegisterRequest ignored:
                     String clientID;
                     lock_n.writeLock().lock();
