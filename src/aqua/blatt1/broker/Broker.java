@@ -2,10 +2,7 @@ package aqua.blatt1.broker;
 
 import aqua.blatt1.common.Direction;
 import aqua.blatt1.common.FishModel;
-import aqua.blatt1.common.msgtypes.DeregisterRequest;
-import aqua.blatt1.common.msgtypes.HandoffRequest;
-import aqua.blatt1.common.msgtypes.RegisterRequest;
-import aqua.blatt1.common.msgtypes.RegisterResponse;
+import aqua.blatt1.common.msgtypes.*;
 import aqua.blatt2.broker.PoisonPill;
 import messaging.Endpoint;
 import messaging.Message;
@@ -88,26 +85,44 @@ public class Broker {
                     lock.writeLock().lock();
                     clientcol.add(clientID, sender);
                     lock.writeLock().unlock();
+                    lock.readLock().lock();
+                    InetSocketAddress leftNeighbor = clientcol.getLeftNeighorOf(clientcol.indexOf(sender));
+                    InetSocketAddress rightNeighbor = clientcol.getRightNeighorOf(clientcol.indexOf(sender));
+                    if (clientcol.size() == 1) {
+                        endpoint.send(sender, new NeighborUpdate(leftNeighbor, rightNeighbor));
+                    } else {
+                        endpoint.send(sender, new NeighborUpdate(leftNeighbor, rightNeighbor));
+                        endpoint.send(leftNeighbor, new NeighborUpdate(clientcol.getRightNeighorOf(clientcol.indexOf(leftNeighbor)), sender));
+                        endpoint.send(rightNeighbor, new NeighborUpdate(sender, clientcol.getLeftNeighorOf(clientcol.indexOf(rightNeighbor))));
+                    }
+                    lock.readLock().unlock();
                     endpoint.send(sender, new RegisterResponse(clientID));
+
                     break;
                 case DeregisterRequest ignored:
                     lock.writeLock().lock();
                     clientcol.remove(clientcol.indexOf(sender));
                     lock.writeLock().unlock();
-                    break;
-                case HandoffRequest ignored:
-                    HandoffRequest hor = (HandoffRequest) payload;
-                    FishModel fish = hor.getFish();
-                    InetSocketAddress neighbor;
                     lock.readLock().lock();
-                    if (fish.getDirection() == Direction.LEFT){
-                        neighbor = clientcol.getLeftNeighorOf(clientcol.indexOf(sender));
-                    } else {
-                        neighbor = clientcol.getRightNeighorOf(clientcol.indexOf(sender));
-                    }
+                    InetSocketAddress leftNeighbor2 = clientcol.getLeftNeighorOf(clientcol.indexOf(sender));
+                    InetSocketAddress rightNeighbor2 = clientcol.getRightNeighorOf(clientcol.indexOf(sender));
+                    endpoint.send(leftNeighbor2, new NeighborUpdate(clientcol.getLeftNeighorOf(clientcol.indexOf(leftNeighbor2)), rightNeighbor2));
+                    endpoint.send(rightNeighbor2, new NeighborUpdate(leftNeighbor2, clientcol.getRightNeighorOf(clientcol.indexOf(rightNeighbor2))));
                     lock.readLock().unlock();
-                    endpoint.send(neighbor, hor);
                     break;
+//                case HandoffRequest ignored:
+//                    HandoffRequest hor = (HandoffRequest) payload;
+//                    FishModel fish = hor.getFish();
+//                    InetSocketAddress neighbor;
+//                    lock.readLock().lock();
+//                    if (fish.getDirection() == Direction.LEFT){
+//                        neighbor = clientcol.getLeftNeighorOf(clientcol.indexOf(sender));
+//                    } else {
+//                        neighbor = clientcol.getRightNeighorOf(clientcol.indexOf(sender));
+//                    }
+//                    lock.readLock().unlock();
+//                    endpoint.send(neighbor, hor);
+//                    break;
                 default:
                     throw new IllegalStateException("Unexpected value: " + payload);
             }

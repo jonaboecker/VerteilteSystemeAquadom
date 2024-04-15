@@ -1,5 +1,6 @@
 package aqua.blatt1.client;
 
+import java.net.InetSocketAddress;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.Observable;
@@ -21,6 +22,8 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 	protected final Set<FishModel> fishies;
 	protected int fishCounter = 0;
 	protected final ClientCommunicator.ClientForwarder forwarder;
+	protected InetSocketAddress leftNeighbor;
+	protected InetSocketAddress rightNeighbor;
 
 	public TankModel(ClientCommunicator.ClientForwarder forwarder) {
 		this.fishies = Collections.newSetFromMap(new ConcurrentHashMap<FishModel, Boolean>());
@@ -30,6 +33,11 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 	synchronized void onRegistration(String id) {
 		this.id = id;
 		newFish(WIDTH - FishModel.getXSize(), rand.nextInt(HEIGHT - FishModel.getYSize()));
+	}
+
+	synchronized void onNeighborUpdate(InetSocketAddress leftNeighbor, InetSocketAddress rightNeighbor) {
+		this.leftNeighbor = leftNeighbor;
+		this.rightNeighbor = rightNeighbor;
 	}
 
 	public synchronized void newFish(int x, int y) {
@@ -53,6 +61,14 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 		return id;
 	}
 
+	public InetSocketAddress getLeftNeighbor() {
+		return leftNeighbor;
+	}
+
+	public InetSocketAddress getRightNeighbor() {
+		return rightNeighbor;
+	}
+
 	public synchronized int getFishCounter() {
 		return fishCounter;
 	}
@@ -67,8 +83,16 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 
 			fish.update();
 
-			if (fish.hitsEdge())
-				forwarder.handOff(fish);
+			if (fish.hitsEdge()) {
+				if (fish.getDirection() == Direction.LEFT && leftNeighbor != null) {
+					forwarder.handOff(fish, leftNeighbor);
+				} else if (fish.getDirection() == Direction.RIGHT && rightNeighbor != null) {
+					forwarder.handOff(fish, rightNeighbor);
+				} else {
+					throw new IllegalStateException("no Neighbor to handoff to!");
+				}
+			}
+
 
 			if (fish.disappears())
 				it.remove();
