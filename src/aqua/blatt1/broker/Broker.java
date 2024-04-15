@@ -98,15 +98,16 @@ public class Broker {
 
                     break;
                 case DeregisterRequest ignored:
-                    lock.writeLock().lock();
-                    clientcol.remove(clientcol.indexOf(sender));
-                    lock.writeLock().unlock();
                     lock.readLock().lock();
                     InetSocketAddress leftNeighbor2 = clientcol.getLeftNeighorOf(clientcol.indexOf(sender));
                     InetSocketAddress rightNeighbor2 = clientcol.getRightNeighorOf(clientcol.indexOf(sender));
                     endpoint.send(leftNeighbor2, new NeighborUpdate(clientcol.getLeftNeighorOf(clientcol.indexOf(leftNeighbor2)), rightNeighbor2));
                     endpoint.send(rightNeighbor2, new NeighborUpdate(leftNeighbor2, clientcol.getRightNeighorOf(clientcol.indexOf(rightNeighbor2))));
                     lock.readLock().unlock();
+
+                    lock.writeLock().lock();
+                    clientcol.remove(clientcol.indexOf(sender));
+                    lock.writeLock().unlock();
                     break;
 //                case HandoffRequest ignored:
 //                    HandoffRequest hor = (HandoffRequest) payload;
