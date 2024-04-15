@@ -88,12 +88,10 @@ public class Broker {
                     lock.readLock().lock();
                     InetSocketAddress leftNeighbor = clientcol.getLeftNeighorOf(clientcol.indexOf(sender));
                     InetSocketAddress rightNeighbor = clientcol.getRightNeighorOf(clientcol.indexOf(sender));
-                    if (clientcol.size() == 1) {
-                        endpoint.send(sender, new NeighborUpdate(leftNeighbor, rightNeighbor));
-                    } else {
-                        endpoint.send(sender, new NeighborUpdate(leftNeighbor, rightNeighbor));
-                        endpoint.send(leftNeighbor, new NeighborUpdate(clientcol.getRightNeighorOf(clientcol.indexOf(leftNeighbor)), sender));
-                        endpoint.send(rightNeighbor, new NeighborUpdate(sender, clientcol.getLeftNeighorOf(clientcol.indexOf(rightNeighbor))));
+                    endpoint.send(sender, new NeighborUpdate(leftNeighbor, rightNeighbor));
+                    if (clientcol.size() != 1) {
+                        endpoint.send(leftNeighbor, new NeighborUpdate(clientcol.getLeftNeighorOf(clientcol.indexOf(leftNeighbor)), sender));
+                        endpoint.send(rightNeighbor, new NeighborUpdate(sender, clientcol.getRightNeighorOf(clientcol.indexOf(rightNeighbor))));
                     }
                     lock.readLock().unlock();
                     endpoint.send(sender, new RegisterResponse(clientID));
