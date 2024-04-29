@@ -38,6 +38,11 @@ public class ClientCommunicator {
 		public void handOffToken(InetSocketAddress receiver) {
 			endpoint.send(receiver, new Token());
 		}
+
+		public void sendSnapshotMarker(InetSocketAddress receiver) {
+			endpoint.send(receiver, new SnapshotMarker());
+		}
+		public void handOffCollectSnapshotToken(InetSocketAddress reciever, CollectSnapshot collectSnapshot) {endpoint.send(reciever, collectSnapshot);}
 	}
 
 	public class ClientReceiver extends Thread {
@@ -56,13 +61,19 @@ public class ClientCommunicator {
 					tankModel.onRegistration(((RegisterResponse) msg.getPayload()).getId());
 
 				if (msg.getPayload() instanceof HandoffRequest)
-					tankModel.receiveFish(((HandoffRequest) msg.getPayload()).getFish());
+					tankModel.receiveFish(((HandoffRequest) msg.getPayload()).getFish(), msg.getSender());
 
 				if (msg.getPayload() instanceof NeighborUpdate neighborUpdate)
                     tankModel.onNeighborUpdate(neighborUpdate.getLeftNeighbor(), neighborUpdate.getRightNeighbor());
 
 				if (msg.getPayload() instanceof Token)
 					tankModel.onReceiveToken();
+
+				if (msg.getPayload() instanceof SnapshotMarker)
+					tankModel.createSnapshot(msg.getSender());
+
+				if (msg.getPayload() instanceof CollectSnapshot)
+					tankModel.addSnapshotToToken((CollectSnapshot) msg.getPayload());
 
 			}
 			System.out.println("Receiver stopped.");

@@ -10,9 +10,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.Timer;
 
+import aqua.blatt1.common.Aufzeichnungsmodus;
 import aqua.blatt1.common.Direction;
 import aqua.blatt1.common.FishModel;
-import aqua.blatt1.common.msgtypes.Token;
+import aqua.blatt1.common.msgtypes.CollectSnapshot;
 
 public class TankModel extends Observable implements Iterable<FishModel> {
 
@@ -28,6 +29,12 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 	protected InetSocketAddress rightNeighbor;
 	protected boolean token = false;
 	protected Timer timer = new Timer();
+
+	protected int fishiesInTank = 0;
+	protected SnapShot snapShot;
+	protected Aufzeichnungsmodus aufzeichnungsmodus = Aufzeichnungsmodus.IDLE;
+	private Boolean snapShotInitiator = false;
+	public int globalSnapshot = -1;
 
 	public TankModel(ClientCommunicator.ClientForwarder forwarder) {
 		this.fishies = Collections.newSetFromMap(new ConcurrentHashMap<FishModel, Boolean>());
@@ -76,12 +83,22 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 			FishModel fish = new FishModel("fish" + (++fishCounter) + "@" + getId(), x, y,
 					rand.nextBoolean() ? Direction.LEFT : Direction.RIGHT);
 
+			fishiesInTank++;
 			fishies.add(fish);
 		}
 	}
 
-	synchronized void receiveFish(FishModel fish) {
+	synchronized void receiveFish(FishModel fish, InetSocketAddress sender) {
 		fish.setToStart();
+		fishiesInTank++;
+		if (aufzeichnungsmodus != Aufzeichnungsmodus.IDLE) {
+			if (sender == leftNeighbor && (aufzeichnungsmodus == Aufzeichnungsmodus.LEFT || aufzeichnungsmodus == Aufzeichnungsmodus.BOTH)) {
+				snapShot.fishiesLeft++;
+			}
+			if (sender == rightNeighbor && (aufzeichnungsmodus == Aufzeichnungsmodus.RIGHT || aufzeichnungsmodus == Aufzeichnungsmodus.BOTH)) {
+				snapShot.fishiesRight++;
+			}
+		}
 		fishies.add(fish);
 	}
 
@@ -108,8 +125,10 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 					fish.reverse();
 				} else if (fish.getDirection() == Direction.LEFT && leftNeighbor != null) {
 					forwarder.handOff(fish, leftNeighbor);
+					fishiesInTank--;
 				} else if (fish.getDirection() == Direction.RIGHT && rightNeighbor != null) {
 					forwarder.handOff(fish, rightNeighbor);
+					fishiesInTank--;
 				} else {
 					throw new IllegalStateException("no Neighbor to handoff to!");
 				}
@@ -147,6 +166,52 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 			forwarder.handOffToken(leftNeighbor);
 		}
 		forwarder.deregister(id);
+	}
+
+	public synchronized void initiateSnapshot() {
+		initSnapShot();
+		snapShotInitiator = true;
+	}
+
+	private synchronized void initSnapShot() {
+		snapShot = new SnapShot(fishiesInTank);
+		aufzeichnungsmodus = Aufzeichnungsmodus.BOTH;
+		forwarder.sendSnapshotMarker(leftNeighbor);
+		forwarder.sendSnapshotMarker(rightNeighbor);
+	}
+
+	public synchronized void createSnapshot(InetSocketAddress sender) {
+		if (aufzeichnungsmodus == Aufzeichnungsmodus.IDLE) {
+			initSnapShot();
+			if (sender.equals(leftNeighbor)) {
+				aufzeichnungsmodus = Aufzeichnungsmodus.RIGHT;
+			} else {
+				aufzeichnungsmodus = Aufzeichnungsmodus.LEFT;
+			}
+		} else {
+			if (aufzeichnungsmodus == Aufzeichnungsmodus.BOTH) {
+				if (sender.equals(leftNeighbor)) {
+					aufzeichnungsmodus = Aufzeichnungsmodus.RIGHT;
+				} else {
+					aufzeichnungsmodus = Aufzeichnungsmodus.LEFT;
+				}
+			} else {
+				aufzeichnungsmodus = Aufzeichnungsmodus.IDLE;
+				if (snapShotInitiator) {
+					forwarder.handOffCollectSnapshotToken(leftNeighbor, new CollectSnapshot(snapShot.sumFishies()));
+				}
+			}
+		}
+	}
+
+	public synchronized void addSnapshotToToken(CollectSnapshot token) {
+		if (snapShotInitiator) {
+			globalSnapshot = token.fishies;
+			snapShotInitiator = false;
+		} else {
+			token.fishies += snapShot.sumFishies();
+			forwarder.handOffCollectSnapshotToken(leftNeighbor, token);
+		}
 	}
 
 }

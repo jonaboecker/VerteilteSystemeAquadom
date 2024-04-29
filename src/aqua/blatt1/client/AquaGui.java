@@ -46,10 +46,13 @@ public class AquaGui extends JFrame implements Runnable, Observer {
 		JMenu toolsMenu = new JMenu("Tools");
 		menuBar.add(toolsMenu);
 
-		JMenuItem gsMenuItem = new JMenuItem("Global Snapshot");
-		toolsMenu.add(gsMenuItem);
+		JMenuItem creategsMenuItem = new JMenuItem("Create Global Snapshot");
+		toolsMenu.add(creategsMenuItem);
+		creategsMenuItem.addActionListener(new SnapshotController(this, tankModel));
 
-		gsMenuItem.addActionListener(new NotImplementedYetController(this));
+		JMenuItem showgsMenuItem = new JMenuItem("Show Global Snapshot");
+		toolsMenu.add(showgsMenuItem);
+		creategsMenuItem.addActionListener(new ShowSnapshotController(this, tankModel.globalSnapshot));
 
 		searchMenu = new JMenu("Toggle Fish Color...");
 		toolsMenu.add(searchMenu);
