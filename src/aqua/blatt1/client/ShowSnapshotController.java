@@ -8,18 +8,18 @@ import javax.swing.JOptionPane;
 
 public class ShowSnapshotController implements ActionListener {
     private final Component parent;
-    private final int fishies;
+    private final TankModel tankModel;
 
-    public ShowSnapshotController(Component parent, int fishies) {
+    public ShowSnapshotController(Component parent, TankModel fishies) {
         this.parent = parent;
-        this.fishies = fishies;
+        this.tankModel = fishies;
     }
 
     @Override
     public void actionPerformed(ActionEvent e) {
-        if(this.fishies == -1)
+        if(this.tankModel.globalSnapshot == -1)
             JOptionPane.showMessageDialog(parent, "There is no GlobalSnapshot!");
         else
-            JOptionPane.showMessageDialog(parent, "Snapshot = " + this.fishies);
+            JOptionPane.showMessageDialog(parent, "Snapshot = " + this.tankModel.globalSnapshot);
     }
 }
