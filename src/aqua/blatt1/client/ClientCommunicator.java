@@ -1,5 +1,6 @@
 package aqua.blatt1.client;
 
+import java.io.Serializable;
 import java.net.InetSocketAddress;
 
 import aqua.blatt1.common.Direction;
@@ -43,6 +44,9 @@ public class ClientCommunicator {
 			endpoint.send(receiver, new SnapshotMarker());
 		}
 		public void handOffCollectSnapshotToken(InetSocketAddress reciever, CollectSnapshot collectSnapshot) {endpoint.send(reciever, collectSnapshot);}
+		public void sendLocationRequest(InetSocketAddress receiver, String fishId) {
+			endpoint.send(receiver, new LocationRequest(fishId));
+		}
 	}
 
 	public class ClientReceiver extends Thread {
@@ -74,6 +78,9 @@ public class ClientCommunicator {
 
 				if (msg.getPayload() instanceof CollectSnapshot)
 					tankModel.addSnapshotToToken((CollectSnapshot) msg.getPayload());
+
+				if (msg.getPayload() instanceof LocationRequest)
+					tankModel.locateFishGlobally(((LocationRequest) msg.getPayload()).getFishId());
 
 			}
 			System.out.println("Receiver stopped.");
