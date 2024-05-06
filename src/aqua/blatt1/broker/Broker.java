@@ -26,15 +26,16 @@ public class Broker {
     ReadWriteLock lock_n = new ReentrantReadWriteLock();
 
     private static final int NUMTHREADS = 16;
-    ExecutorService executor = Executors. newFixedThreadPool(NUMTHREADS);
+    ExecutorService executor = Executors.newFixedThreadPool(NUMTHREADS);
 
     private static boolean stopFlag = false;
 
-    public Broker(){
+    public Broker() {
         n = 0;
     }
+
     public void broker() {
-        while(!stopFlag){
+        while (!stopFlag) {
             //System.out.println("Broker is running");
             Message message = endpoint.blockingReceive();
             if (message.getPayload() instanceof PoisonPill) {
@@ -111,6 +112,14 @@ public class Broker {
                     lock.writeLock().lock();
                     clientcol.remove(clientcol.indexOf(sender));
                     lock.writeLock().unlock();
+                    break;
+                case NameResolutionRequest ignored:
+                    NameResolutionRequest localePayload = (NameResolutionRequest) this.payload;
+                    lock.readLock().lock();
+                    int index = clientcol.indexOf(localePayload.getTankId());
+                    InetSocketAddress client = clientcol.getClient(index);
+                    lock.readLock().unlock();
+                    endpoint.send(sender, new NameResolutionResponse(client, localePayload.getRequestId()));
                     break;
                 default:
                     throw new IllegalStateException("Unexpected value: " + payload);

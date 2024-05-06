@@ -8,7 +8,6 @@ import java.util.concurrent.TimeUnit;
 import aqua.blatt1.common.Aufzeichnungsmodus;
 import aqua.blatt1.common.Direction;
 import aqua.blatt1.common.FishModel;
-import aqua.blatt1.common.FishiesLocation;
 import aqua.blatt1.common.msgtypes.CollectSnapshot;
 
 public class TankModel extends Observable implements Iterable<FishModel> {
@@ -32,7 +31,7 @@ public class TankModel extends Observable implements Iterable<FishModel> {
     private Boolean snapShotInitiator = false;
     public int globalSnapshot = -1;
 
-    protected Map<String, FishiesLocation> fishiesLog = new HashMap<>();
+    protected Map<String, InetSocketAddress> homeAgent = new HashMap<>();
 
     public TankModel(ClientCommunicator.ClientForwarder forwarder) {
         this.fishies = Collections.newSetFromMap(new ConcurrentHashMap<FishModel, Boolean>());
@@ -56,26 +55,20 @@ public class TankModel extends Observable implements Iterable<FishModel> {
     }
 
     public void locateFishGlobally(String fishId) {
-        if (fishiesLog.get(fishId).equals(FishiesLocation.LEFT)) {
-            forwarder.sendLocationRequest(leftNeighbor, fishId);
-        } else if (fishiesLog.get(fishId).equals(FishiesLocation.RIGHT)) {
-            forwarder.sendLocationRequest(rightNeighbor, fishId);
-        } else if (fishiesLog.get(fishId).equals(FishiesLocation.HERE)) {
+        if (homeAgent.get(fishId) == null)
             locateFishLocally(fishId);
-        } else {
-            throw new IllegalStateException("Fish not found in log!");
-        }
+        else
+            forwarder.sendLocationRequest(homeAgent.get(fishId), fishId);
 
     }
 
-    private boolean locateFishLocally(String fishId) {
+    public void locateFishLocally(String fishId) {
         for (FishModel fish : fishies) {
             if (fish.getId().equals(fishId)) {
                 fish.toggle();
-                return true;
+                return;
             }
         }
-        return false;
     }
 
     private static class TokenTimer extends java.util.TimerTask {
@@ -106,7 +99,7 @@ public class TankModel extends Observable implements Iterable<FishModel> {
 
             fishiesInTank++;
             fishies.add(fish);
-            fishiesLog.put(fish.getId(), FishiesLocation.HERE);
+            homeAgent.put(fish.getId(), null);
         }
     }
 
@@ -122,7 +115,19 @@ public class TankModel extends Observable implements Iterable<FishModel> {
             }
         }
         fishies.add(fish);
-        fishiesLog.put(fish.getId(), FishiesLocation.HERE);
+        if (homeAgent.containsKey(fish.getId())) {
+            homeAgent.put(fish.getId(), null);
+        } else {
+            forwarder.sendNameResolutionRequest(fish.getTankId(), fish.getId());
+        }
+    }
+
+    public void sendLocationUpdate(String fishId, InetSocketAddress tankAdress) {
+        forwarder.sendLocationUpdate(fishId, tankAdress);
+    }
+
+    public void onLocationUpdate(String fishId, InetSocketAddress tankAdress) {
+        homeAgent.put(fishId, tankAdress);
     }
 
     public String getId() {
@@ -149,11 +154,9 @@ public class TankModel extends Observable implements Iterable<FishModel> {
                 } else if (fish.getDirection() == Direction.LEFT && leftNeighbor != null) {
                     forwarder.handOff(fish, leftNeighbor);
                     fishiesInTank--;
-                    fishiesLog.put(fish.getId(), FishiesLocation.LEFT);
                 } else if (fish.getDirection() == Direction.RIGHT && rightNeighbor != null) {
                     forwarder.handOff(fish, rightNeighbor);
                     fishiesInTank--;
-                    fishiesLog.put(fish.getId(), FishiesLocation.RIGHT);
                 } else {
                     throw new IllegalStateException("no Neighbor to handoff to!");
                 }
