@@ -10,6 +10,9 @@ import messaging.Message;
 import java.awt.*;
 import java.io.Serializable;
 import java.net.InetSocketAddress;
+import java.sql.Timestamp;
+import java.util.Timer;
+import java.util.TimerTask;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -29,12 +32,26 @@ public class Broker {
     ExecutorService executor = Executors.newFixedThreadPool(NUMTHREADS);
 
     private static boolean stopFlag = false;
+    private final int leaseTime = 5000;
+    private final Timer timer = new Timer();
 
     public Broker() {
         n = 0;
     }
 
     public void broker() {
+        TimerTask removeOldClients = new TimerTask() {
+            @Override
+            public void run() {
+                lock.writeLock().lock();
+                Timestamp now = new Timestamp(System.currentTimeMillis());
+                for (int i = 0; i < clientcol.size(); i++)
+                    if (now.getTime() - clientcol.getTimestamp(i).getTime() > leaseTime)
+                        deregister(clientcol.getClient(i));
+                lock.writeLock().unlock();
+            }
+        };
+        timer.schedule(removeOldClients, leaseTime / 5, leaseTime / 5);
         while (!stopFlag) {
             //System.out.println("Broker is running");
             Message message = endpoint.blockingReceive();
@@ -58,6 +75,19 @@ public class Broker {
         broker.broker();
     }
 
+    private void deregister(InetSocketAddress sender) {
+        lock.readLock().lock();
+        InetSocketAddress leftNeighbor2 = clientcol.getLeftNeighorOf(clientcol.indexOf(sender));
+        InetSocketAddress rightNeighbor2 = clientcol.getRightNeighorOf(clientcol.indexOf(sender));
+        endpoint.send(leftNeighbor2, new NeighborUpdate(clientcol.getLeftNeighorOf(clientcol.indexOf(leftNeighbor2)), rightNeighbor2));
+        endpoint.send(rightNeighbor2, new NeighborUpdate(leftNeighbor2, clientcol.getRightNeighorOf(clientcol.indexOf(rightNeighbor2))));
+        lock.readLock().unlock();
+
+        lock.writeLock().lock();
+        clientcol.remove(clientcol.indexOf(sender));
+        lock.writeLock().unlock();
+    }
+
     // Erstellen Sie eine (innere) Klasse BrokerTask, die die Verarbeitung und Beantwortung von Nachrichten übernimmt.
     class BrokerTask implements Runnable {
         private final Serializable payload;
@@ -76,6 +106,15 @@ public class Broker {
                     stopFlag = true;
                     break;
                 case RegisterRequest ignored:
+                    lock.readLock().lock();
+                    int clientIndex = clientcol.indexOf(sender);
+                    lock.readLock().unlock();
+                    if (clientIndex != -1) {
+                        lock.writeLock().lock();
+                        clientcol.updateTimestamp(clientIndex);
+                        lock.writeLock().unlock();
+                        break;
+                    }
                     String clientID;
                     lock_n.writeLock().lock();
                     try {
@@ -98,20 +137,11 @@ public class Broker {
                         endpoint.send(sender, new Token());
                     }
                     lock.readLock().unlock();
-                    endpoint.send(sender, new RegisterResponse(clientID));
+                    endpoint.send(sender, new RegisterResponse(clientID, 5000));
 
                     break;
                 case DeregisterRequest ignored:
-                    lock.readLock().lock();
-                    InetSocketAddress leftNeighbor2 = clientcol.getLeftNeighorOf(clientcol.indexOf(sender));
-                    InetSocketAddress rightNeighbor2 = clientcol.getRightNeighorOf(clientcol.indexOf(sender));
-                    endpoint.send(leftNeighbor2, new NeighborUpdate(clientcol.getLeftNeighorOf(clientcol.indexOf(leftNeighbor2)), rightNeighbor2));
-                    endpoint.send(rightNeighbor2, new NeighborUpdate(leftNeighbor2, clientcol.getRightNeighorOf(clientcol.indexOf(rightNeighbor2))));
-                    lock.readLock().unlock();
-
-                    lock.writeLock().lock();
-                    clientcol.remove(clientcol.indexOf(sender));
-                    lock.writeLock().unlock();
+                    deregister(sender);
                     break;
                 case NameResolutionRequest ignored:
                     NameResolutionRequest localePayload = (NameResolutionRequest) this.payload;
