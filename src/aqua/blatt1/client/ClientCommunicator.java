@@ -1,9 +1,8 @@
 package aqua.blatt1.client;
 
-import java.io.Serializable;
 import java.net.InetSocketAddress;
 
-import aqua.blatt1.common.Direction;
+import aqua.blatt1.common.SecureEndpoint;
 import aqua.blatt1.common.msgtypes.*;
 import messaging.Endpoint;
 import messaging.Message;
@@ -14,7 +13,7 @@ public class ClientCommunicator {
 	private final Endpoint endpoint;
 
 	public ClientCommunicator() {
-		endpoint = new Endpoint();
+		endpoint = new SecureEndpoint();
 	}
 
 	public class ClientForwarder {

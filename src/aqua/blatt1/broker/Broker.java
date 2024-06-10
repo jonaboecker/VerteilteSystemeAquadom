@@ -2,6 +2,7 @@ package aqua.blatt1.broker;
 
 import aqua.blatt1.common.Direction;
 import aqua.blatt1.common.FishModel;
+import aqua.blatt1.common.SecureEndpoint;
 import aqua.blatt1.common.msgtypes.*;
 import aqua.blatt2.broker.PoisonPill;
 import messaging.Endpoint;
@@ -22,7 +23,7 @@ import static javax.swing.JOptionPane.showMessageDialog;
 
 public class Broker {
 
-    private final Endpoint endpoint = new Endpoint(4711);
+    private final Endpoint endpoint = new SecureEndpoint(4711);
     private static ClientCollection<InetSocketAddress> clientcol = new ClientCollection<>();
     ReadWriteLock lock = new ReentrantReadWriteLock();
     private static int n;
