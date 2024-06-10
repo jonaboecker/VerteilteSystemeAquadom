@@ -1,33 +1,42 @@
 package aqua.blatt1.common;
 
+import aqua.blatt1.common.msgtypes.KeyExchangeMessage;
 import messaging.Endpoint;
 import messaging.Message;
 
-import javax.crypto.BadPaddingException;
-import javax.crypto.Cipher;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
-import javax.crypto.spec.SecretKeySpec;
+import javax.crypto.*;
 import java.io.*;
-import java.security.InvalidKeyException;
-import java.security.Key;
-import java.security.NoSuchAlgorithmException;
-
+import java.net.InetSocketAddress;
+import java.security.*;
+import java.security.spec.X509EncodedKeySpec;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.zip.GZIPInputStream;
+import java.util.zip.GZIPOutputStream;
 
 public class SecureEndpoint extends Endpoint {
 
-    private Key key = new SecretKeySpec("CAFEBABECAFEBABE".getBytes(), "AES");
+    private KeyPair keyPair;
+
+    {
+        try {
+            keyPair = KeyPairGenerator.getInstance("RSA").generateKeyPair();
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private Map<InetSocketAddress, PublicKey> commPartner = new HashMap<>();
 
     private Cipher encrypt;
     private Cipher decrypt;
 
     {
         try {
-            encrypt = Cipher.getInstance("AES");
-            decrypt =  Cipher.getInstance("AES");
-        } catch (NoSuchAlgorithmException e) {
-            throw new RuntimeException(e);
-        } catch (NoSuchPaddingException e) {
+            encrypt = Cipher.getInstance("RSA");
+            decrypt = Cipher.getInstance("RSA");
+        } catch (NoSuchAlgorithmException | NoSuchPaddingException e) {
             throw new RuntimeException(e);
         }
     }
@@ -35,81 +44,144 @@ public class SecureEndpoint extends Endpoint {
     public SecureEndpoint() {
         super();
         try {
-            encrypt.init(Cipher.ENCRYPT_MODE, key);
-            decrypt.init(Cipher.DECRYPT_MODE, key);
+            decrypt.init(Cipher.DECRYPT_MODE, keyPair.getPrivate());
         } catch (InvalidKeyException e) {
             throw new RuntimeException(e);
         }
     }
+
     public SecureEndpoint(int port) {
         super(port);
         try {
-            encrypt.init(Cipher.ENCRYPT_MODE, key);
-            decrypt.init(Cipher.DECRYPT_MODE, key);
+            decrypt.init(Cipher.DECRYPT_MODE, keyPair.getPrivate());
         } catch (InvalidKeyException e) {
             throw new RuntimeException(e);
         }
     }
 
-    private byte [] serialize (Serializable msg) {
-        ByteArrayOutputStream bos = new ByteArrayOutputStream();
-        ObjectOutputStream oos = null;
-        try {
-            oos = new ObjectOutputStream(bos);
+    private byte[] serialize(Serializable msg) {
+        try (ByteArrayOutputStream bos = new ByteArrayOutputStream();
+             ObjectOutputStream oos = new ObjectOutputStream(bos)) {
             oos.writeObject(msg);
+            return bos.toByteArray();
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
-        return bos.toByteArray();
     }
 
-    private Object deserialize (byte [] msg) {
-        ByteArrayInputStream bis = new ByteArrayInputStream(msg);
-        try (ObjectInput in = new ObjectInputStream(bis)) {
+    private Object deserialize(byte[] msg) {
+        try (ByteArrayInputStream bis = new ByteArrayInputStream(msg);
+             ObjectInputStream in = new ObjectInputStream(bis)) {
             return in.readObject();
         } catch (Exception ex) {
             throw new RuntimeException(ex);
         }
     }
 
-    @Override
-    public void send (java.net.InetSocketAddress receiver, java.io.Serializable payload) {
+    private byte[] compress(byte[] data) throws IOException {
+        try (ByteArrayOutputStream bos = new ByteArrayOutputStream(data.length);
+             GZIPOutputStream gzip = new GZIPOutputStream(bos)) {
+            gzip.write(data);
+            gzip.finish();
+            return bos.toByteArray();
+        }
+    }
 
-        byte [] msg;
+    private byte[] decompress(byte[] data) throws IOException {
+        try (ByteArrayInputStream bis = new ByteArrayInputStream(data);
+             GZIPInputStream gis = new GZIPInputStream(bis);
+             ByteArrayOutputStream bos = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[1024];
+            int len;
+            while ((len = gis.read(buffer)) != -1) {
+                bos.write(buffer, 0, len);
+            }
+            return bos.toByteArray();
+        }
+    }
 
-        try {
-            msg = encrypt.doFinal(serialize(payload));
-        } catch (IllegalBlockSizeException e) {
-            throw new RuntimeException(e);
-        } catch (BadPaddingException e) {
-            throw new RuntimeException(e);
+    private class Sender implements Runnable {
+
+        private final InetSocketAddress receiver;
+        private final Serializable payload;
+
+        public Sender(InetSocketAddress receiver, Serializable payload) {
+            this.receiver = receiver;
+            this.payload = payload;
         }
 
-        super.send(receiver, msg);
+        @Override
+        public void run() {
+            while (!commPartner.containsKey(receiver)) {
+                // Wait until the key exchange is completed
+            }
+            send(receiver, payload);
+        }
     }
 
     @Override
-    public messaging.Message blockingReceive(){
+    public void send(InetSocketAddress receiver, Serializable payload) {
+        if (!commPartner.containsKey(receiver)) {
+            super.send(receiver, new KeyExchangeMessage(keyPair.getPublic()));
+            Thread t = new Thread(new Sender(receiver, payload));
+            t.start();
+            return;
+        }
+
+        try {
+            byte[] data = serialize(payload);
+            data = compress(data);
+
+            encrypt.init(Cipher.ENCRYPT_MODE, commPartner.get(receiver));
+
+            if (data.length > 245) { // 245 bytes is a safe limit for RSA with 2048-bit key
+                throw new RuntimeException("Data must not be longer than 245 bytes after compression");
+            }
+
+            byte[] encryptedData = encrypt.doFinal(data);
+            super.send(receiver, encryptedData);
+        } catch (IOException | IllegalBlockSizeException | BadPaddingException | InvalidKeyException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    @Override
+    public messaging.Message blockingReceive() {
         messaging.Message msg = super.blockingReceive();
-        try {
-            return new Message((Serializable) deserialize(decrypt.doFinal((byte[]) msg.getPayload())), msg.getSender());
-        } catch (IllegalBlockSizeException e) {
-            throw new RuntimeException(e);
-        } catch (BadPaddingException e) {
-            throw new RuntimeException(e);
+        if (msg.getPayload() instanceof KeyExchangeMessage) {
+            PublicKey tempKey = ((KeyExchangeMessage) msg.getPayload()).getKey();
+            commPartner.put(msg.getSender(), tempKey);
+            return null;
+        } else {
+            try {
+                decrypt.init(Cipher.DECRYPT_MODE, keyPair.getPrivate());
+                byte[] decryptedData = decrypt.doFinal((byte[]) msg.getPayload());
+                byte[] decompressedData = decompress(decryptedData);
+                Serializable payload = (Serializable) deserialize(decompressedData);
+                return new Message(payload, msg.getSender());
+            } catch (IllegalBlockSizeException | BadPaddingException | InvalidKeyException | IOException e) {
+                throw new RuntimeException(e);
+            }
         }
-
     }
 
     @Override
-    public messaging.Message nonBlockingReceive(){
+    public messaging.Message nonBlockingReceive() {
         messaging.Message msg = super.nonBlockingReceive();
-        try {
-            return new Message((Serializable) deserialize(decrypt.doFinal((byte[]) msg.getPayload())), msg.getSender());
-        } catch (IllegalBlockSizeException e) {
-            throw new RuntimeException(e);
-        } catch (BadPaddingException e) {
-            throw new RuntimeException(e);
+        if (msg.getPayload() instanceof KeyExchangeMessage) {
+            PublicKey tempKey = ((KeyExchangeMessage) msg.getPayload()).getKey();
+            commPartner.put(msg.getSender(), tempKey);
+            return null;
+        } else {
+            try {
+                decrypt.init(Cipher.DECRYPT_MODE, keyPair.getPrivate());
+                byte[] decryptedData = decrypt.doFinal((byte[]) msg.getPayload());
+                byte[] decompressedData = decompress(decryptedData);
+                Serializable payload = (Serializable) deserialize(decompressedData);
+                return new Message(payload, msg.getSender());
+            } catch (IllegalBlockSizeException | BadPaddingException | InvalidKeyException | IOException e) {
+                throw new RuntimeException(e);
+            }
         }
     }
 }
